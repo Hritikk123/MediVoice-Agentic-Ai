@@ -6,6 +6,7 @@ import { doctorAgent } from '../../_components/DoctorAgentCard'
 import { Circle, PhoneCall } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
+import Vapi from '@vapi-ai/web';
 
 type SessionDetail={
   id:number,
@@ -18,6 +19,9 @@ type SessionDetail={
 function MedicalVoiceAgent() {
   const {sessionId} = useParams()
   const [sessionDetail,setSessionDetail]= useState<SessionDetail>()
+  const [callStarted,setCallStarted]=useState(false)
+  const vapi = new Vapi(process.env.NEXT_PUBLIC_VAPI_API_KEY!);
+  
 
   useEffect(()=>{
       sessionId&& GetSessionDetails()
@@ -27,6 +31,22 @@ function MedicalVoiceAgent() {
     const result = await axios.get('/api/session-chat?sessionId='+sessionId)
     console.log(result.data)
     setSessionDetail(result.data)
+  }
+
+  const StartCall=()=>{
+    vapi.start(process.env.NEXT_PUBLIC_VAPI_VOICE_ASSISTANT_ID);
+    vapi.on('call-start', () => {console.log('Call started')
+      setCallStarted(true)
+    });
+    vapi.on('call-end', () => {
+      setCallStarted(false)
+      console.log('Call ended')
+    });
+    vapi.on('message', (message) => {
+  if (message.type === 'transcript') {
+    console.log(`${message.role}: ${message.transcript}`);
+  }
+});
   }
   return (
     <div className='p-5 border rounded-3xl bg-secondary'>
