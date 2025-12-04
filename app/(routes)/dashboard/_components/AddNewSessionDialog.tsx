@@ -60,7 +60,7 @@ function AddNewSessionDialog() {
   <DialogContent>
     <DialogHeader>
       <DialogTitle>Add Basic Details</DialogTitle>
-      <DialogDescription>
+      <DialogDescription asChild>
         {!suggestedDoctors ? <div>
             <h2>Add Symptoms or Any Other Details</h2>
             <Textarea placeholder='Add Details here...' 
