@@ -14,7 +14,7 @@ type SessionDetail={
   sessionId:string,
   report:JSON,
   selectedDoctor:doctorAgent,
-  createdBy:string
+  createdOn:string
 }
 
 type messages={
@@ -31,6 +31,7 @@ function MedicalVoiceAgent() {
   const[vapiInstance,setVapiInstance] = useState<any>()
   const[currentRoll,setCurrentRole]=useState<string| null>()
   const[messages,setMessages]=useState<messages[]>([])
+  const[loading,setLoading]=useState(false)
   
 
   useEffect(()=>{
@@ -44,9 +45,34 @@ function MedicalVoiceAgent() {
   }
 
   const StartCall=()=>{
+    setLoading(true)
     const vapi = new Vapi(process.env.NEXT_PUBLIC_VAPI_API_KEY!);
     setVapiInstance(vapi)
-    vapi.start(process.env.NEXT_PUBLIC_VAPI_VOICE_ASSISTANT_ID);
+
+    const VapiAgentConfig={
+      name:'AI Medical Doctor Voice Agent',
+      firstMessage:"Hi there! I'm your AI Medical Assistant. I'm here to help you with any health questions or concerns you might have today. How are you feeling?",
+      transcriber:{
+        provider:'assembly-ai',
+        language:'en'
+      },voice:{
+        provider:'vapi',
+        voiceId:sessionDetail?.selectedDoctor?.voiceId
+
+      },
+      model:{
+        provider:'openai',
+        model:'gpt-4',
+        messages:[
+          {
+            role:'system',
+            content:sessionDetail?.selectedDoctor?.agentPrompt
+        }
+      ]
+      }
+    }
+    //@ts-ignore
+    vapi.start(VapiAgentConfig);
     vapi.on('call-start', () => {console.log('Call started')
       setCallStarted(true)
     });
