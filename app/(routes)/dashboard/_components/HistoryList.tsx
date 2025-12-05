@@ -17,6 +17,7 @@ function HistoryList() {
       const result = await axios.get('/api/ession-chat?sessionId=all')
       console.log(result.data)
       setHistoryList(result.data)
+      
     }
   return (
     <div className='mt-10'>
