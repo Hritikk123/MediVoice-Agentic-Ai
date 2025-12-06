@@ -6,33 +6,32 @@ import { doctorAgent } from '../../_components/DoctorAgentCard'
 import { Circle, Loader, PhoneCall, PhoneOff } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
-import Vapi from '@vapi-ai/web';
+import Vapi from '@vapi-ai/web'
 import { toast } from 'sonner'
 
 export type SessionDetail = {
-  id: number,
-  notes: string,
-  sessionId: string,
-  report: JSON,
-  selectedDoctor: doctorAgent,
+  id: number
+  sessionId: string
+  createdBy: string
+  notes: string
+  selectedDoctor: doctorAgent
   createdOn: string
-}
-
-type messages = {
-  role: string,
-  text: string
+  report?: any
+  conversation?: any
 }
 
 function MedicalVoiceAgent() {
-  const { sessionId } = useParams()
-  const [sessionDetail, setSessionDetail] = useState<SessionDetail>()
-  const [callStarted, setCallStarted] = useState(false)
-  const [liveTranscript, setLiveTranscript] = useState<string>()
-  const [vapiInstance, setVapiInstance] = useState<any>()
-  const [currentRole, setCurrentRole] = useState<string | null>()
-  const [messages, setMessages] = useState<messages[]>([])
-  const [loading, setLoading] = useState(false)
+  const params = useParams()
   const router = useRouter()
+  const sessionId = params['sessionId']
+  
+  const [sessionDetail, setSessionDetail] = useState<SessionDetail>()
+  const [vapiInstance, setVapiInstance] = useState<any>()
+  const [callStarted, setCallStarted] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [messages, setMessages] = useState<any[]>([])
+  const [currentRole, setCurrentRole] = useState<string>('')
+  const [callDuration, setCallDuration] = useState(0)
 
   useEffect(() => {
     if (sessionId) {
@@ -40,150 +39,284 @@ function MedicalVoiceAgent() {
     }
   }, [sessionId])
 
-  const GetSessionDetails = async () => {
-    const result = await axios.get('/api/session-chat?sessionId=' + sessionId)
-    setSessionDetail(result.data)
+  // Timer effect - counts seconds when call is active
+  useEffect(() => {
+    let interval: any
+    if (callStarted) {
+      interval = setInterval(() => {
+        setCallDuration(prev => prev + 1)
+      }, 1000)
+    } else {
+      setCallDuration(0)
+    }
+    return () => clearInterval(interval)
+  }, [callStarted])
+
+  // Format seconds to MM:SS
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
   }
 
-  const StartCall = () => {
+  const GetSessionDetails = async () => {
+    try {
+      setLoading(true)
+      const result = await axios.get('/api/session-chat?sessionId=' + sessionId)
+      console.log('Session details:', result.data)
+      setSessionDetail(result.data)
+    } catch (error: any) {
+      console.error('Error fetching session details:', error)
+      toast.error('Failed to load session details')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const StartCall = async () => {
+    console.log('Starting call with VAPI...')
+    
+    if (!sessionDetail) {
+      toast.error('Session details not loaded')
+      return
+    }
+
+    const apiKey = process.env.NEXT_PUBLIC_VAPI_API_KEY
+    if (!apiKey) {
+      toast.error('VAPI API key not configured')
+      return
+    }
+
+    console.log('VAPI API Key exists:', !!apiKey)
+    
     setLoading(true)
-    
-    const vapi = new Vapi(process.env.NEXT_PUBLIC_VAPI_API_KEY!);
-    setVapiInstance(vapi)
 
-    // Try using the assistant ID first (more reliable)
-    const assistantId = process.env.NEXT_PUBLIC_VAPI_VOICE_ASSISTANT_ID;
-    
-    //@ts-ignore
-    vapi.start(assistantId);
+    try {
+      const vapi = new Vapi(apiKey)
+      console.log('VAPI instance created successfully')
+      
+      setVapiInstance(vapi)
 
-    vapi.on('call-start', () => {
-      console.log('Call started')
-      setCallStarted(true)
+      vapi.on('call-start', () => {
+        console.log('✅ Call started successfully')
+        setCallStarted(true)
+        setLoading(false)
+        toast.success('Call connected!')
+      })
+
+      vapi.on('call-end', () => {
+        console.log('Call ended')
+        setCallStarted(false)
+        setCurrentRole('')
+      })
+
+      vapi.on('speech-start', () => {
+        console.log('Assistant started speaking')
+        setCurrentRole('assistant')
+      })
+
+      vapi.on('speech-end', () => {
+        console.log('Assistant stopped speaking')
+        setCurrentRole('')
+      })
+
+      vapi.on('message', (message: any) => {
+        console.log('Message received:', message)
+        
+        if (message.type === 'transcript') {
+          const transcriptType = message.transcriptType
+          const transcript = message.transcript
+          
+          if (transcriptType === 'partial') {
+            console.log('Partial transcript:', transcript)
+          } else if (transcriptType === 'final') {
+            console.log('Final transcript:', transcript)
+            setMessages((prev) => [...prev, message])
+          }
+        }
+      })
+
+      const assistantId = process.env.NEXT_PUBLIC_VAPI_VOICE_ASSISTANT_ID
+      console.log('Starting call with assistant ID:', assistantId)
+      
+      await vapi.start(assistantId)
+      
+    } catch (error: any) {
+      console.error('Error starting call:', error)
       setLoading(false)
-      toast.success('Connected! Start speaking...')
-    });
-
-    vapi.on('call-end', () => {
       setCallStarted(false)
-      setLoading(false)
-      console.log('Call ended')
-    });
-
-    vapi.on('message', (message: any) => {
-      if (message.type === 'transcript') {
-        const { role, transcriptType, transcript } = message
-
-        if (transcriptType === 'partial') {
-          setLiveTranscript(transcript)
-          setCurrentRole(role)
-        }
-        else if (transcriptType === 'final') {
-          setMessages((prev: any) => [...prev, { role: role, text: transcript }])
-          setLiveTranscript("")
-          setCurrentRole(null)
-        }
-      }
-    });
-
-    vapi.on('speech-start', () => {
-      console.log('Assistant started speaking')
-      setCurrentRole('assistant')
-    })
-
-    vapi.on('speech-end', () => {
-      console.log('Assistant stopped speaking')
-      setCurrentRole('user')
-    })
+      toast.error('Failed to start call: ' + (error.message || 'Unknown error'))
+    }
   }
 
   const endCall = async () => {
-    setLoading(true)
+    console.log('Ending call...')
     
     if (vapiInstance) {
-      // Just stop the call - don't try to remove listeners
-      vapiInstance.stop()
-      setVapiInstance(null)
-    }
-
-    setCallStarted(false)
-
-    // Generate report if we have messages
-    if (messages.length > 0) {
       try {
-        await GenerateReport()
-        toast.success('Report generated successfully!')
-      } catch (error) {
-        console.error('Error generating report:', error)
-        toast.error('Failed to generate report')
+        vapiInstance.stop()
+        setCallStarted(false)
+        
+        console.log('Generating report with', messages.length, 'messages')
+        
+        if (messages.length > 0) {
+          await GenerateReport()
+          toast.success('Call ended. Report generated!')
+        } else {
+          toast.info('Call ended. No conversation to report.')
+        }
+        
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 2000)
+        
+      } catch (error: any) {
+        console.error('Error ending call:', error)
+        toast.error('Error ending call: ' + (error.message || 'Unknown error'))
       }
-    } else {
-      toast.info('No conversation recorded')
     }
-
-    setLoading(false)
-    
-    // Navigate back to dashboard
-    router.push('/dashboard')
   }
 
   const GenerateReport = async () => {
-    const result = await axios.post('/api/medical-report', {
-      messages: messages,
-      sessionDetail: sessionDetail,
-      sessionId: sessionId
-    })
-    console.log('Report generated:', result.data)
-    return result.data
+    console.log('=== STARTING REPORT GENERATION ===')
+    console.log('Messages count:', messages.length)
+    console.log('SessionId:', sessionId)
+
+    try {
+      if (!messages || messages.length === 0) {
+        console.log('No messages to generate report from')
+        toast.info('No conversation recorded')
+        return
+      }
+
+      toast.info('Generating detailed medical report...')
+
+      const result = await axios.post('/api/medical-report', {
+        messages: messages,
+        sessionDetail: sessionDetail,
+        sessionId: sessionId
+      })
+
+      console.log('✅ Report generated successfully:', result.data)
+      toast.success('Detailed medical report generated!')
+      
+    } catch (error: any) {
+      console.error('❌ Report generation error:', error)
+      console.error('Error response:', error.response?.data)
+      
+      const errorMsg = error.response?.data?.details || 
+                       error.response?.data?.error || 
+                       error.message || 
+                       'Failed to generate report'
+      
+      toast.error('Report Error: ' + errorMsg)
+    }
+  }
+
+  if (loading && !sessionDetail) {
+    return (
+      <div className='flex justify-center items-center h-screen'>
+        <Loader className='animate-spin w-10 h-10' />
+      </div>
+    )
   }
 
   return (
-    <div className='p-5 border rounded-3xl bg-secondary'>
-      <div className='flex justify-between items-center'>
-        <h2 className='p-1 px-2 border rounded-md flex gap-2 items-center'>
-          <Circle className={`h-4 w-4 rounded-full ${callStarted ? 'bg-green-500' : 'bg-red-500'}`} />
-          {callStarted ? 'Connected...' : 'Not connected'}
-        </h2>
-        <h2 className='font-bold text-xl text-gray-400'>00:00</h2>
+    <div className='p-10 flex flex-col items-center justify-center h-screen gap-5'>
+      <Image
+        src={sessionDetail?.selectedDoctor?.image || '/placeholder.png'}
+        alt='doctor'
+        width={200}
+        height={200}
+        className='rounded-full border-4 border-primary'
+      />
+      
+      <h2 className='text-2xl font-bold'>
+        {sessionDetail?.selectedDoctor?.specialist}
+      </h2>
+      
+      <p className='text-gray-500 text-center max-w-md'>
+        {sessionDetail?.selectedDoctor?.agentPrompt}
+      </p>
+
+      {/* CONNECTION STATUS AND TIMER - THIS IS THE KEY PART */}
+      <div className='flex items-center gap-6 bg-gray-100 px-6 py-3 rounded-lg'>
+        {/* Connection Status with Green/Red Circle */}
+        <div className='flex items-center gap-2'>
+          <Circle 
+            className={`w-4 h-4 ${
+              callStarted 
+                ? 'fill-green-500 text-green-500 animate-pulse' 
+                : 'fill-red-500 text-red-500'
+            }`} 
+          />
+          <span className={`font-semibold ${callStarted ? 'text-green-600' : 'text-red-600'}`}>
+            {callStarted ? 'Connected' : 'Not Connected'}
+          </span>
+        </div>
+        
+        {/* Timer in MM:SS format */}
+        <div className='text-2xl font-mono font-bold text-gray-800'>
+          {formatDuration(callDuration)}
+        </div>
       </div>
 
-      {sessionDetail && (
-        <div className='flex items-center flex-col mt-10'>
-          <Image
-            src={sessionDetail.selectedDoctor?.image}
-            alt={sessionDetail.selectedDoctor?.specialist ?? 'Doctor'}
-            height={120}
-            width={120}
-            className='h-[100px] w-[100px] object-cover rounded-full'
-          />
-          <h2 className='mt-2 text-lg'>{sessionDetail.selectedDoctor?.specialist}</h2>
-          <p className='text-sm text-gray-400'>AI Medical Voice Agent</p>
+      {!callStarted ? (
+        <Button 
+          disabled={loading} 
+          onClick={StartCall}
+          className='gap-2 px-8 py-6 text-lg'
+        >
+          {loading ? (
+            <>
+              <Loader className='animate-spin w-5 h-5' />
+              Connecting...
+            </>
+          ) : (
+            <>
+              <PhoneCall className='w-5 h-5' />
+              Start Call
+            </>
+          )}
+        </Button>
+      ) : (
+        <Button 
+          onClick={endCall}
+          variant='destructive'
+          className='gap-2 px-8 py-6 text-lg'
+        >
+          <PhoneOff className='w-5 h-5' />
+          Disconnect
+        </Button>
+      )}
 
-          <div className='mt-12 overflow-y-auto flex flex-col items-center px-10 md:px-28 lg:px-52 xl:px-72 max-h-[300px]'>
-            {messages.slice(-4).map((msg: messages, index) => (
-              <h2 className='text-gray-400 p-2' key={index}>
-                <span className='font-semibold'>{msg.role}:</span> {msg.text}
-              </h2>
-            ))}
-
-            {liveTranscript && (
-              <h2 className='text-lg font-medium'>
-                <span className='font-semibold'>{currentRole}:</span> {liveTranscript}
-              </h2>
+      {callStarted && (
+        <div className='mt-5 w-full max-w-2xl'>
+          <h3 className='font-bold text-lg mb-3 flex items-center gap-2'>
+            <Circle className={`w-3 h-3 ${currentRole === 'assistant' ? 'fill-green-500 text-green-500' : 'fill-gray-400 text-gray-400'} animate-pulse`} />
+            Conversation Transcript
+          </h3>
+          
+          <div className='bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto'>
+            {messages.length === 0 ? (
+              <p className='text-gray-400 text-center'>
+                Waiting for conversation to start...
+              </p>
+            ) : (
+              <div className='space-y-3'>
+                {messages.map((msg, index) => (
+                  <div key={index} className='text-sm'>
+                    <span className='font-bold'>
+                      {msg.role === 'assistant' ? 'AI Doctor' : 'You'}:
+                    </span>{' '}
+                    <span className='text-gray-700'>
+                      {msg.transcript || msg.content}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-
-          {!callStarted ? (
-            <Button className='mt-20' onClick={StartCall} disabled={loading}>
-              {loading ? <Loader className='animate-spin' /> : <PhoneCall />}
-              Start Call
-            </Button>
-          ) : (
-            <Button variant={'destructive'} onClick={endCall} disabled={loading}>
-              {loading ? <Loader className='animate-spin' /> : <PhoneOff />}
-              Disconnect
-            </Button>
-          )}
         </div>
       )}
     </div>
