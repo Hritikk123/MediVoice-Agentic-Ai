@@ -105,9 +105,23 @@ function MedicalVoiceAgent() {
       })
 
       vapi.on('call-end', () => {
-        console.log('Call ended')
+        console.log('Call ended normally')
         setCallStarted(false)
         setCurrentRole('')
+        // Don't show error toast here - this is a normal end
+      })
+
+      // Handle errors gracefully - this is the key fix
+      vapi.on('error', (error: any) => {
+        console.log('VAPI error (handled):', error)
+        
+        // Only show toast for actual errors, not for normal call end
+        if (error?.error?.type !== 'ejected' && error?.errorMsg !== 'Meeting has ended') {
+          toast.error('Call error: ' + (error?.errorMsg || 'Unknown error'))
+        }
+        
+        setCallStarted(false)
+        setLoading(false)
       })
 
       vapi.on('speech-start', () => {
@@ -172,7 +186,10 @@ function MedicalVoiceAgent() {
         
       } catch (error: any) {
         console.error('Error ending call:', error)
-        toast.error('Error ending call: ' + (error.message || 'Unknown error'))
+        // Don't show error toast if it's just the normal "meeting ended" error
+        if (error?.message !== 'Meeting has ended') {
+          toast.error('Error ending call: ' + (error.message || 'Unknown error'))
+        }
       }
     }
   }
@@ -239,7 +256,7 @@ function MedicalVoiceAgent() {
         {sessionDetail?.selectedDoctor?.agentPrompt}
       </p>
 
-      {/* CONNECTION STATUS AND TIMER - THIS IS THE KEY PART */}
+      {/* CONNECTION STATUS AND TIMER */}
       <div className='flex items-center gap-6 bg-gray-100 px-6 py-3 rounded-lg'>
         {/* Connection Status with Green/Red Circle */}
         <div className='flex items-center gap-2'>
